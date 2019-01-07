@@ -38,7 +38,7 @@ func TestHash_identity(t *testing.T) {
 		// We run the test 100 times to try to tease out variability
 		// in the runtime in terms of ordering.
 		valuelist := make([]uint64, 100)
-		for i, _ := range valuelist {
+		for i := range valuelist {
 			v, err := Hash(tc, nil)
 			if err != nil {
 				t.Fatalf("Error: %s\n\n%#v", err, tc)
@@ -431,6 +431,102 @@ func TestHash_equalSet(t *testing.T) {
 			t.Fatalf("Failed to hash %#v: %s", tc.One, err)
 		}
 		two, err := Hash(tc.Two, nil)
+		if err != nil {
+			t.Fatalf("Failed to hash %#v: %s", tc.Two, err)
+		}
+
+		// Zero is always wrong
+		if one == 0 {
+			t.Fatalf("zero hash: %#v", tc.One)
+		}
+
+		// Compare
+		if (one == two) != tc.Match {
+			t.Fatalf("bad, expected: %#v\n\n%#v\n\n%#v", tc.Match, tc.One, tc.Two)
+		}
+	}
+}
+
+func TestHash_sliceUnorder(t *testing.T) {
+	type Test struct {
+		Name    string
+		Friends []string
+	}
+
+	cases := []struct {
+		One, Two interface{}
+		Match    bool
+	}{
+		{
+			Test{Name: "foo", Friends: []string{"foo", "bar"}},
+			Test{Name: "foo", Friends: []string{"bar", "foo"}},
+			true,
+		},
+
+		{
+			Test{Name: "foo", Friends: []string{"foo", "bar"}},
+			Test{Name: "foo", Friends: []string{"foo", "bar"}},
+			true,
+		},
+	}
+
+	for _, tc := range cases {
+		opt := HashOptions{
+			SliceUnorder: true,
+		}
+		one, err := Hash(tc.One, &opt)
+		if err != nil {
+			t.Fatalf("Failed to hash %#v: %s", tc.One, err)
+		}
+		two, err := Hash(tc.Two, &opt)
+		if err != nil {
+			t.Fatalf("Failed to hash %#v: %s", tc.Two, err)
+		}
+
+		// Zero is always wrong
+		if one == 0 {
+			t.Fatalf("zero hash: %#v", tc.One)
+		}
+
+		// Compare
+		if (one == two) != tc.Match {
+			t.Fatalf("bad, expected: %#v\n\n%#v\n\n%#v", tc.Match, tc.One, tc.Two)
+		}
+	}
+}
+
+func TestHash_notEqualUnset(t *testing.T) {
+	type Test struct {
+		Name    string
+		Friends []string `hash:"unset"`
+	}
+
+	cases := []struct {
+		One, Two interface{}
+		Match    bool
+	}{
+		{
+			Test{Name: "foo", Friends: []string{"foo", "bar"}},
+			Test{Name: "foo", Friends: []string{"bar", "foo"}},
+			false,
+		},
+
+		{
+			Test{Name: "foo", Friends: []string{"foo", "bar"}},
+			Test{Name: "foo", Friends: []string{"foo", "bar"}},
+			true,
+		},
+	}
+
+	for _, tc := range cases {
+		opt := HashOptions{
+			SliceUnorder: true,
+		}
+		one, err := Hash(tc.One, &opt)
+		if err != nil {
+			t.Fatalf("Failed to hash %#v: %s", tc.One, err)
+		}
+		two, err := Hash(tc.Two, &opt)
 		if err != nil {
 			t.Fatalf("Failed to hash %#v: %s", tc.Two, err)
 		}

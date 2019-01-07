@@ -12,7 +12,7 @@ func ExampleHash() {
 	}
 
 	v := ComplexStruct{
-		Name: "mitchellh",
+		Name: "pkumza",
 		Age:  64,
 		Metadata: map[string]interface{}{
 			"car":      true,

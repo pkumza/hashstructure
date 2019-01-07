@@ -31,6 +31,10 @@ type HashOptions struct {
 	// ZeroNil is flag determining if nil pointer should be treated equal
 	// to a zero value of pointed type. By default this is false.
 	ZeroNil bool
+
+	// SliceUnorder is flag determining if we take Slice as an unordered
+	// set. By default this is false.
+	SliceUnorder bool
 }
 
 // Hash returns the hash value of an arbitrary value.
@@ -82,17 +86,19 @@ func Hash(v interface{}, opts *HashOptions) (uint64, error) {
 
 	// Create our walker and walk the structure
 	w := &walker{
-		h:       opts.Hasher,
-		tag:     opts.TagName,
-		zeronil: opts.ZeroNil,
+		h:            opts.Hasher,
+		tag:          opts.TagName,
+		zeronil:      opts.ZeroNil,
+		sliceunorder: opts.SliceUnorder,
 	}
 	return w.visit(reflect.ValueOf(v), nil)
 }
 
 type walker struct {
-	h       hash.Hash64
-	tag     string
-	zeronil bool
+	h            hash.Hash64
+	tag          string
+	zeronil      bool
+	sliceunorder bool
 }
 
 type visitOpts struct {
@@ -267,6 +273,8 @@ func (w *walker) visit(v reflect.Value, opts *visitOpts) (uint64, error) {
 				switch tag {
 				case "set":
 					f |= visitFlagSet
+				case "unset":
+					f |= visitFlagUnset
 				}
 
 				kh, err := w.visit(reflect.ValueOf(fieldType.Name), nil)
@@ -296,8 +304,16 @@ func (w *walker) visit(v reflect.Value, opts *visitOpts) (uint64, error) {
 		// hash code.
 		var h uint64
 		var set bool
-		if opts != nil {
-			set = (opts.Flags & visitFlagSet) != 0
+		if w.sliceunorder {
+			set = true
+			if opts != nil {
+				set = (opts.Flags & visitFlagUnset) == 0
+			}
+		} else {
+			set = false
+			if opts != nil {
+				set = (opts.Flags & visitFlagSet) != 0
+			}
 		}
 		l := v.Len()
 		for i := 0; i < l; i++ {
@@ -355,4 +371,5 @@ type visitFlag uint
 const (
 	visitFlagInvalid visitFlag = iota
 	visitFlagSet               = iota << 1
+	visitFlagUnset             = iota << 2
 )
