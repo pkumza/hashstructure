@@ -24,10 +24,6 @@ type HashOptions struct {
 	// default to FNV.
 	Hasher hash.Hash64
 
-	// TagName is the struct tag to look at when hashing the structure.
-	// By default this is "hash".
-	TagName string
-
 	// ZeroNil is flag determining if nil pointer should be treated equal
 	// to a zero value of pointed type. By default this is false.
 	ZeroNil bool
@@ -52,23 +48,6 @@ type HashOptions struct {
 //   * Adding an exported field to a struct with the zero value will change
 //     the hash value.
 //
-// For structs, the hashing can be controlled using tags. For example:
-//
-//    struct {
-//        Name string
-//        UUID string `hash:"ignore"`
-//    }
-//
-// The available tag values are:
-//
-//   * "ignore" or "-" - The field will be ignored and not affect the hash code.
-//
-//   * "set" - The field will be treated as a set, where ordering doesn't
-//             affect the hash code. This only works for slices.
-//
-//   * "string" - The field will be hashed as a string, only works when the
-//                field implements fmt.Stringer
-//
 func Hash(v interface{}, opts *HashOptions) (uint64, error) {
 	// Create default options
 	if opts == nil {
@@ -77,9 +56,6 @@ func Hash(v interface{}, opts *HashOptions) (uint64, error) {
 	if opts.Hasher == nil {
 		opts.Hasher = fnv.New64()
 	}
-	if opts.TagName == "" {
-		opts.TagName = "hash"
-	}
 
 	// Reset the hash
 	opts.Hasher.Reset()
@@ -87,7 +63,6 @@ func Hash(v interface{}, opts *HashOptions) (uint64, error) {
 	// Create our walker and walk the structure
 	w := &walker{
 		h:            opts.Hasher,
-		tag:          opts.TagName,
 		zeronil:      opts.ZeroNil,
 		sliceunorder: opts.SliceUnorder,
 	}
@@ -96,15 +71,11 @@ func Hash(v interface{}, opts *HashOptions) (uint64, error) {
 
 type walker struct {
 	h            hash.Hash64
-	tag          string
 	zeronil      bool
 	sliceunorder bool
 }
 
 type visitOpts struct {
-	// Flags are a bitmask of flags to affect behavior of this visit
-	Flags visitFlag
-
 	// Information about the struct containing this field
 	Struct      interface{}
 	StructField string
@@ -235,28 +206,10 @@ func (w *walker) visit(v reflect.Value, opts *visitOpts) (uint64, error) {
 		l := v.NumField()
 		for i := 0; i < l; i++ {
 			if innerV := v.Field(i); v.CanSet() || t.Field(i).Name != "_" {
-				var f visitFlag
 				fieldType := t.Field(i)
 				if fieldType.PkgPath != "" {
 					// Unexported
 					continue
-				}
-
-				tag := fieldType.Tag.Get(w.tag)
-				if tag == "ignore" || tag == "-" {
-					// Ignore this field
-					continue
-				}
-
-				// if string is set, use the string value
-				if tag == "string" {
-					if impl, ok := innerV.Interface().(fmt.Stringer); ok {
-						innerV = reflect.ValueOf(impl.String())
-					} else {
-						return 0, &ErrNotStringer{
-							Field: v.Type().Field(i).Name,
-						}
-					}
 				}
 
 				// Check if we implement includable and check it
@@ -270,20 +223,12 @@ func (w *walker) visit(v reflect.Value, opts *visitOpts) (uint64, error) {
 					}
 				}
 
-				switch tag {
-				case "set":
-					f |= visitFlagSet
-				case "unset":
-					f |= visitFlagUnset
-				}
-
 				kh, err := w.visit(reflect.ValueOf(fieldType.Name), nil)
 				if err != nil {
 					return 0, err
 				}
 
 				vh, err := w.visit(innerV, &visitOpts{
-					Flags:       f,
 					Struct:      parent,
 					StructField: fieldType.Name,
 				})
@@ -299,34 +244,16 @@ func (w *walker) visit(v reflect.Value, opts *visitOpts) (uint64, error) {
 		return h, nil
 
 	case reflect.Slice:
-		// We have two behaviors here. If it isn't a set, then we just
-		// visit all the elements. If it is a set, then we do a deterministic
+		// We take slice as a set, then we do a deterministic
 		// hash code.
 		var h uint64
-		var set bool
-		if w.sliceunorder {
-			set = true
-			if opts != nil {
-				set = (opts.Flags & visitFlagUnset) == 0
-			}
-		} else {
-			set = false
-			if opts != nil {
-				set = (opts.Flags & visitFlagSet) != 0
-			}
-		}
 		l := v.Len()
 		for i := 0; i < l; i++ {
 			current, err := w.visit(v.Index(i), nil)
 			if err != nil {
 				return 0, err
 			}
-
-			if set {
-				h = hashUpdateUnordered(h, current)
-			} else {
-				h = hashUpdateOrdered(w.h, h, current)
-			}
+			h = hashUpdateUnordered(h, current)
 		}
 
 		return h, nil
@@ -364,12 +291,3 @@ func hashUpdateOrdered(h hash.Hash64, a, b uint64) uint64 {
 func hashUpdateUnordered(a, b uint64) uint64 {
 	return a ^ b
 }
-
-// visitFlag is used as a bitmask for affecting visit behavior
-type visitFlag uint
-
-const (
-	visitFlagInvalid visitFlag = iota
-	visitFlagSet               = iota << 1
-	visitFlagUnset             = iota << 2
-)
